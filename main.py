@@ -22,8 +22,6 @@ bot = telebot.TeleBot(TOKEN)
 init_db()
 logger.add("bot.log", format="{time} {level} {message}", level="INFO", rotation="5 MB")
 
-ALLOWED_CHAT_ID = -1003158914747  # основной чат
-
 # ---------------- КОМАНДА /START ----------------
 @bot.message_handler(commands=['start'])
 def start_message(message: telebot.types.Message) -> None:
