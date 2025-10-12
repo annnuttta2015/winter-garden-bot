@@ -6,7 +6,7 @@ import os
 import telebot
 from loguru import logger
 from typing import Any
-from config import TOKEN, ALLOWED_CHAT_ID
+from config import TOKEN, ALLOWED_CHAT_ID, ADMIN_ID, FLOWER_THRESHOLD
 from db import (
     init_db, add_user, update_stitches, get_user,
     update_flowers, reset_all, get_top_users, subtract_stitches,
@@ -15,7 +15,7 @@ from db import (
 from export import export_users_to_csv
 from flowers import (
     get_random_flower, has_caterpillar,
-    BASE_FLOWERS, ADVANCED_FLOWERS
+    BASE_FLOWERS, ADVANCED_FLOWERS, ALL_FLOWERS
 )
 
 # ---------------- ИНИЦИАЛИЗАЦИЯ ----------------
@@ -23,10 +23,21 @@ bot = telebot.TeleBot(TOKEN)
 init_db()
 logger.add("bot.log", format="{time} {level} {message}", level="INFO", rotation="5 MB")
 
+_MESSAGES_LOG = set()
+def clean_message_log() -> None:
+    global _MESSAGES_LOG
+    if len(_MESSAGES_LOG) > 1000:
+        _MESSAGES_LOG = set()
+
 # ---------------- КОМАНДА /START ----------------
 @bot.message_handler(commands=['start'])
 def start_message(message: telebot.types.Message) -> None:
     """Send welcome message."""
+    if message.message_id in _MESSAGES_LOG:
+        return
+    _MESSAGES_LOG.add(message.message_id)
+    clean_message_log()
+
     bot.reply_to(message, M["start"])
 
 
@@ -42,6 +53,11 @@ def add_stitches(message: telebot.types.Message) -> None:
         bot.send_message(chat_id, "⛔️ Эта команда доступна только в основном чате.")
         return
 
+    if message.message_id in _MESSAGES_LOG:
+        return
+    _MESSAGES_LOG.add(message.message_id)
+    clean_message_log()
+
     try:
         args = message.text.split()
         if len(args) < 2 or not args[1].isdigit():
@@ -54,34 +70,26 @@ def add_stitches(message: telebot.types.Message) -> None:
             return
 
         add_user(user_id, name)
-
-        # Получаем текущие данные (до гусеницы)
-        prev_data = get_user(user_id)
-        updated_bouquet = prev_data[2] or ""
+        user_data = get_user(user_id) # Получаем данные пользователя один раз
+        prev_name, prev_stitches, updated_bouquet = user_data
+        updated_bouquet = updated_bouquet or ""
         flower_text = ""
 
-        # 🐛 Гусеница (до добавления крестиков)
+        # 🐛 Гусеница
         if has_caterpillar():
             subtract_stitches(user_id, 100)
+            prev_stitches = max(0, prev_stitches - 100) # Обновляем prev_stitches в памяти
             flower_text += M["caterpillar"]
-
-        # prev_stitches — уже после гусеницы
-        prev_stitches = get_user(user_id)[1]
 
         # ➕ Добавляем крестики
         update_stitches(user_id, stitches_to_add)
-
-        # Получаем новое общее значение
-        total_stitches = get_user(user_id)[1]
+        total_stitches = prev_stitches + stitches_to_add # Обновляем total_stitches в памяти
 
         # 🌸 Выдача цветочков
-        prev_level = prev_stitches // 500
-        new_level = total_stitches // 500
-        flowers_to_give = new_level - prev_level
+        flowers_to_give = total_stitches // FLOWER_THRESHOLD - prev_stitches // FLOWER_THRESHOLD
 
         if flowers_to_give > 0:
-            all_flowers = BASE_FLOWERS + ADVANCED_FLOWERS
-            current_flower_count = sum(updated_bouquet.count(f) for f in all_flowers)
+            current_flower_count = sum(updated_bouquet.count(f) for f in ALL_FLOWERS)
             for _ in range(flowers_to_give):
                 new_flower = get_random_flower(current_flower_count)
                 update_flowers(user_id, new_flower)
@@ -117,6 +125,11 @@ def add_stitches(message: telebot.types.Message) -> None:
 def show_top(message: telebot.types.Message) -> None:
     """Show top 10 users."""
     chat_id = message.chat.id
+    if message.message_id in _MESSAGES_LOG:
+        return
+    _MESSAGES_LOG.add(message.message_id)
+    clean_message_log()
+
     try:
         top_users = get_top_users()
         if not top_users:
@@ -144,6 +157,11 @@ def send_backup(message: telebot.types.Message) -> None:
         bot.send_message(chat_id, M["backup_denied"])
         return
 
+    if message.message_id in _MESSAGES_LOG:
+        return
+    _MESSAGES_LOG.add(message.message_id)
+    clean_message_log()
+
     try:
         headers, rows = get_all_users_with_headers()
 
@@ -166,8 +184,6 @@ def reset_command(message: telebot.types.Message) -> None:
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    ADMIN_ID = 5839958791  #  ID мой
-
     if user_id != ADMIN_ID:
         bot.send_message(chat_id, M["reset_denied"])
         return
@@ -187,7 +203,7 @@ if __name__ == "__main__":
 
     while True:
         try:
-            bot.polling(non_stop=True, interval=1, timeout=60)
+            bot.polling(non_stop=True, interval=3, timeout=60)
         except Exception as e:
             logger.error(M["polling_error"].format(error=e))
             bot.stop_polling()
