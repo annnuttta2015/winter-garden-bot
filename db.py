@@ -28,20 +28,30 @@ def with_db_connection(func: Callable) -> Callable:
 
 @with_db_connection
 def init_db(c: sqlite3.Cursor, conn: sqlite3.Connection) -> None:
-    """Initializes the database by creating the users table if it doesn't exist and adds an index.
+    """Initializes the database by creating the users and user_flowers tables.
+    Adds an index to the users table.
 
     Args:
         c (sqlite3.Cursor): The database cursor.
         conn (sqlite3.Connection): The database connection.
     """
+    # Создаем или изменяем таблицу users
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
         name TEXT,
         stitches INTEGER DEFAULT 0,
-        flowers TEXT DEFAULT '',
         caterpillars INTEGER DEFAULT 0
     )''')
     c.execute('CREATE INDEX IF NOT EXISTS idx_stitches ON users (stitches DESC)')
+
+    # Создаем таблицу user_flowers
+    c.execute('''CREATE TABLE IF NOT EXISTS user_flowers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        flower_name TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+    )''')
 
 @with_db_connection
 def add_user(c: sqlite3.Cursor, conn: sqlite3.Connection, user_id: int, name: str) -> None:
@@ -80,7 +90,7 @@ def subtract_stitches(c: sqlite3.Cursor, conn: sqlite3.Connection, user_id: int,
     c.execute('UPDATE users SET stitches = MAX(stitches - ?, 0) WHERE user_id = ?', (amount, user_id))
 
 @with_db_connection
-def get_user(c: sqlite3.Cursor, conn: sqlite3.Connection, user_id: int) -> Tuple[str, int, str] | None:
+def get_user(c: sqlite3.Cursor, conn: sqlite3.Connection, user_id: int) -> Tuple[str, int, int] | None:
     """Retrieves user data by user ID.
 
     Args:
@@ -89,37 +99,50 @@ def get_user(c: sqlite3.Cursor, conn: sqlite3.Connection, user_id: int) -> Tuple
         user_id (int): The ID of the user.
 
     Returns:
-        Tuple[str, int, str] | None: A tuple containing (name, stitches, flowers) or None if user not found.
+        Tuple[str, int, int] | None: A tuple containing (name, stitches, caterpillars) or None if user not found.
     """
-    c.execute('SELECT name, stitches, flowers FROM users WHERE user_id = ?', (user_id,))
-    result: Tuple[str, int, str] | None = c.fetchone()
+    c.execute('SELECT name, stitches, caterpillars FROM users WHERE user_id = ?', (user_id,))
+    result: Tuple[str, int, int] | None = c.fetchone()
     return result
 
 @with_db_connection
-def update_flowers(c: sqlite3.Cursor, conn: sqlite3.Connection, user_id: int, new_flower: str) -> None:
-    """Adds a new flower to a user's bouquet.
+def add_flower_to_user(c: sqlite3.Cursor, conn: sqlite3.Connection, user_id: int, flower_name: str) -> None:
+    """Adds a new flower to a user's collection.
 
     Args:
         c (sqlite3.Cursor): The database cursor.
         conn (sqlite3.Connection): The database connection.
         user_id (int): The ID of the user.
-        new_flower (str): The emoji string of the new flower.
+        flower_name (str): The name of the flower to add.
     """
-    user_data: Tuple[str, int, str] | None = get_user(c, conn, user_id)
-    if user_data:
-        current_flowers: str = user_data[2] or ''
-        updated_flowers: str = (current_flowers + ' ' + new_flower).strip()
-        c.execute('UPDATE users SET flowers = ? WHERE user_id = ?', (updated_flowers, user_id))
+    c.execute('INSERT INTO user_flowers (user_id, flower_name) VALUES (?, ?)', (user_id, flower_name))
+
+@with_db_connection
+def get_user_flowers_list(c: sqlite3.Cursor, conn: sqlite3.Connection, user_id: int) -> List[str]:
+    """Retrieves all flower names for a specific user.
+
+    Args:
+        c (sqlite3.Cursor): The database cursor.
+        conn (sqlite3.Connection): The database connection.
+        user_id (int): The ID of the user.
+
+    Returns:
+        List[str]: A list of flower names.
+    """
+    c.execute('SELECT flower_name FROM user_flowers WHERE user_id = ?', (user_id,))
+    results: List[Tuple[str]] = c.fetchall()
+    return [row[0] for row in results]
 
 @with_db_connection
 def reset_all(c: sqlite3.Cursor, conn: sqlite3.Connection) -> None:
-    """Deletes all user data from the database.
+    """Deletes all user data and flower data from the database.
 
     Args:
         c (sqlite3.Cursor): The database cursor.
         conn (sqlite3.Connection): The database connection.
     """
     c.execute('DELETE FROM users')
+    c.execute('DELETE FROM user_flowers')
 
 @with_db_connection
 def get_all_users(c: sqlite3.Cursor, conn: sqlite3.Connection) -> List[Tuple[Any, ...]]:
@@ -132,13 +155,14 @@ def get_all_users(c: sqlite3.Cursor, conn: sqlite3.Connection) -> List[Tuple[Any
     Returns:
         List[Tuple[Any, ...]]: A list of tuples, each representing a user.
     """
-    c.execute('SELECT * FROM users ORDER BY rowid ASC')
+    # Эта функция теперь возвращает данные без цветов, так как цветы в отдельной таблице
+    c.execute('SELECT user_id, name, stitches, caterpillars FROM users ORDER BY rowid ASC')
     result: List[Tuple[Any, ...]] = c.fetchall()
     return result
 
 @with_db_connection
 def get_top_users(c: sqlite3.Cursor, conn: sqlite3.Connection, limit: int = 10) -> List[Tuple[str, int, str]]:
-    """Retrieves the top users based on stitches.
+    """Retrieves the top users based on stitches, including their concatenated flowers.
 
     Args:
         c (sqlite3.Cursor): The database cursor.
@@ -146,9 +170,14 @@ def get_top_users(c: sqlite3.Cursor, conn: sqlite3.Connection, limit: int = 10) 
         limit (int): The maximum number of top users to retrieve.
 
     Returns:
-        List[Tuple[str, int, str]]: A list of tuples, each containing (name, stitches, flowers).
+        List[Tuple[str, int, str]]: A list of tuples, each containing (name, stitches, flowers_string).
     """
-    c.execute('SELECT name, stitches, flowers FROM users ORDER BY stitches DESC LIMIT ?', (limit,))
+    # Запрос для получения топа пользователей и их цветов
+    c.execute('''SELECT u.name, u.stitches, GROUP_CONCAT(uf.flower_name, ' ') AS flowers_string
+                  FROM users u
+                  LEFT JOIN user_flowers uf ON u.user_id = uf.user_id
+                  GROUP BY u.user_id
+                  ORDER BY u.stitches DESC LIMIT ?''', (limit,))
     result: List[Tuple[str, int, str]] = c.fetchall()
     return result
 
@@ -190,7 +219,12 @@ def get_all_users_with_headers(c: sqlite3.Cursor, conn: sqlite3.Connection) -> T
     Returns:
         Tuple[List[str], List[Tuple[Any, ...]]]: A tuple containing a list of headers and a list of user data tuples.
     """
-    c.execute("SELECT * FROM users")
+    # Для экспорта, объединяем данные пользователей и их цветы
+    c.execute('''SELECT u.user_id, u.name, u.stitches, u.caterpillars, GROUP_CONCAT(uf.flower_name, ' ') AS flowers_string
+                  FROM users u
+                  LEFT JOIN user_flowers uf ON u.user_id = uf.user_id
+                  GROUP BY u.user_id
+                  ORDER BY u.user_id ASC''')
     rows: List[Tuple[Any, ...]] = c.fetchall()
     headers: List[str] = [description[0] for description in c.description]
     return headers, rows
