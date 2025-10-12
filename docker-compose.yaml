@@ -1,0 +1,25 @@
+services:
+  bot:
+    build: .
+    container_name: winter-garden-bot
+    restart: always
+    volumes:
+      - "wg-data:/app"
+    networks:
+      winter-garden-network:
+        ipv4_address: 10.72.16.2
+
+volumes:
+  wg-data:
+    name: "wg-data"
+
+networks:
+  winter-garden-network:
+    name: winter-garden-network
+    enable_ipv6: false
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.72.16.0/24
+          gateway: 10.72.16.1
