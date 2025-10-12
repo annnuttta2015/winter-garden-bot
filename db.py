@@ -2,9 +2,23 @@ import sqlite3
 
 DB_NAME = 'garden.db'
 
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+def with_db_connection(func):
+    def wrapper(*args, **kwargs):
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        try:
+            result = func(cursor, conn, *args, **kwargs)
+            conn.commit()
+            return result
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
+    return wrapper
+
+@with_db_connection
+def init_db(c, conn):
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
         name TEXT,
@@ -12,82 +26,63 @@ def init_db():
         flowers TEXT DEFAULT '',
         caterpillars INTEGER DEFAULT 0
     )''')
-    conn.commit()
-    conn.close()
+    c.execute('CREATE INDEX IF NOT EXISTS idx_stitches ON users (stitches DESC)')
 
-def add_user(user_id, name):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+@with_db_connection
+def add_user(c, conn, user_id, name):
     c.execute('INSERT OR IGNORE INTO users (user_id, name) VALUES (?, ?)', (user_id, name))
-    conn.commit()
-    conn.close()
 
-def update_stitches(user_id, amount):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+@with_db_connection
+def update_stitches(c, conn, user_id, amount):
     c.execute('UPDATE users SET stitches = stitches + ? WHERE user_id = ?', (amount, user_id))
-    conn.commit()
-    conn.close()
 
-def subtract_stitches(user_id, amount):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+@with_db_connection
+def subtract_stitches(c, conn, user_id, amount):
     c.execute('UPDATE users SET stitches = MAX(stitches - ?, 0) WHERE user_id = ?', (amount, user_id))
-    conn.commit()
-    conn.close()
 
-def get_user(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+@with_db_connection
+def get_user(c, conn, user_id):
     c.execute('SELECT name, stitches, flowers FROM users WHERE user_id = ?', (user_id,))
     result = c.fetchone()
-    conn.close()
     return result
 
-def update_flowers(user_id, new_flower):
-    user = get_user(user_id)
-    if user:
-        current_flowers = user[2] or ''
+@with_db_connection
+def update_flowers(c, conn, user_id, new_flower):
+    user_data = get_user(c, conn, user_id)
+    if user_data:
+        current_flowers = user_data[2] or ''
         updated = (current_flowers + ' ' + new_flower).strip()
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
         c.execute('UPDATE users SET flowers = ? WHERE user_id = ?', (updated, user_id))
-        conn.commit()
-        conn.close()
 
-def reset_all():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+@with_db_connection
+def reset_all(c, conn):
     c.execute('DELETE FROM users')
-    conn.commit()
-    conn.close()
 
-def get_all_users():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+@with_db_connection
+def get_all_users(c, conn):
     c.execute('SELECT * FROM users ORDER BY rowid ASC')
     result = c.fetchall()
-    conn.close()
     return result
 
-def get_top_users(limit=10):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+@with_db_connection
+def get_top_users(c, conn, limit=10):
     c.execute('SELECT name, stitches, flowers FROM users ORDER BY stitches DESC LIMIT ?', (limit,))
     result = c.fetchall()
-    conn.close()
     return result
-def get_caterpillars(user_id):
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute('SELECT caterpillars FROM users WHERE user_id = ?', (user_id,))
-        result = c.fetchone()
-        conn.close()
-        return result[0] if result else 0
 
-def increment_caterpillars(user_id):
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute('UPDATE users SET caterpillars = caterpillars + 1 WHERE user_id = ?', (user_id,))
-        conn.commit()
-        conn.close()
+@with_db_connection
+def get_caterpillars(c, conn, user_id):
+    c.execute('SELECT caterpillars FROM users WHERE user_id = ?', (user_id,))
+    result = c.fetchone()
+    return result[0] if result else 0
+
+@with_db_connection
+def increment_caterpillars(c, conn, user_id):
+    c.execute('UPDATE users SET caterpillars = caterpillars + 1 WHERE user_id = ?', (user_id,))
+
+@with_db_connection
+def get_all_users_with_headers(c, conn) -> tuple[list[str], list[tuple]]:
+    c.execute("SELECT * FROM users")
+    rows = c.fetchall()
+    headers = [description[0] for description in c.description]
+    return headers, rows

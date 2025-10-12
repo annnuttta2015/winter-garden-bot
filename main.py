@@ -9,7 +9,8 @@ from typing import Any
 from config import TOKEN, ALLOWED_CHAT_ID
 from db import (
     init_db, add_user, update_stitches, get_user,
-    update_flowers, reset_all, get_top_users, subtract_stitches
+    update_flowers, reset_all, get_top_users, subtract_stitches,
+    get_all_users_with_headers
 )
 from export import export_users_to_csv
 from flowers import (
@@ -144,12 +145,7 @@ def send_backup(message: telebot.types.Message) -> None:
         return
 
     try:
-        conn = sqlite3.connect('garden.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users")
-        rows = cursor.fetchall()
-        headers = [description[0] for description in cursor.description]
-        conn.close()
+        headers, rows = get_all_users_with_headers()
 
         output = io.StringIO()
         writer = csv.writer(output)
