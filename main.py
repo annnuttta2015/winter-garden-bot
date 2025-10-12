@@ -191,12 +191,6 @@ if __name__ == "__main__":
     print("Бот запущен 🌿")
     logger.info("Бот запущен")
 
-    try:
-        from keep_alive import keep_alive
-        keep_alive()  #потом удалю
-    except ImportError:
-        logger.warning("keep_alive не найден — запуск без Flask")
-
     while True:
         try:
             bot.polling(non_stop=True, interval=1, timeout=60)
