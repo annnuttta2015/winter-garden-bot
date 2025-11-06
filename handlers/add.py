@@ -71,12 +71,14 @@ def register_add_handler(bot: telebot.TeleBot) -> None:
             total_stitches: int = prev_stitches + stitches_to_add # Обновляем total_stitches в памяти
             logger.info(f"Пользователю {user_id} добавлено {stitches_to_add} крестиков. Всего: {total_stitches}")
 
-            # 🌸 Выдача цветочков
-            flowers_to_give: int = total_stitches // FLOWER_THRESHOLD - prev_stitches // FLOWER_THRESHOLD
+           # 🌸 Выдача цветочков
+           current_flowers_list: List[str] = get_user_flowers_list(user_id)
+           current_flower_count: int = len(current_flowers_list)
+
+            flowers_to_give: int = total_stitches // FLOWER_THRESHOLD - current_flower_count
 
             if flowers_to_give > 0:
-                current_flowers_list: List[str] = get_user_flowers_list(user_id)
-                current_flower_count: int = len(current_flowers_list)
+               
                 for _ in range(flowers_to_give):
                     new_flower: str = get_random_flower(current_flower_count)
                     add_flower_to_user(user_id, new_flower)
