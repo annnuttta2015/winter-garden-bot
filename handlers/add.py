@@ -71,9 +71,9 @@ def register_add_handler(bot: telebot.TeleBot) -> None:
             total_stitches: int = prev_stitches + stitches_to_add # Обновляем total_stitches в памяти
             logger.info(f"Пользователю {user_id} добавлено {stitches_to_add} крестиков. Всего: {total_stitches}")
 
-           # 🌸 Выдача цветочков
-           current_flowers_list: List[str] = get_user_flowers_list(user_id)
-           current_flower_count: int = len(current_flowers_list)
+            # 🌸 Выдача цветочков
+            current_flowers_list: List[str] = get_user_flowers_list(user_id)
+            current_flower_count: int = len(current_flowers_list)
 
             flowers_to_give: int = total_stitches // FLOWER_THRESHOLD - current_flower_count
 
